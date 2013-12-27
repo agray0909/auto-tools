@@ -1,0 +1,192 @@
+INTEGER  WaitListStat = 0
+INTEGER  RestoreLoopCount = 0
+INTEGER  SuccessCount = 0
+INTEGER  RestoreFailCount = 0
+INTEGER  ConnectionFailCount = 0
+;***************************************************************************
+;               Wait for a list of up to three strings
+;
+;  Passed:  INT:     maximum # of seconds to wait
+;           STRING:  Data string #1
+;           STRING:  Data string #2
+;           STRING:  Data string #3
+;
+;     Use $NULLSTR to ignore a parameter.
+;
+;  On Exit: Global WaitListStat = Data string # or 0
+;***************************************************************************
+PROC WaitList
+   PARAM INTEGER  maxTime
+   PARAM STRING   string1, string2, string3
+
+   INTEGER  loopControl
+
+   #IFDEF ASPDEBUG
+      STRFMT S0 "WaitList on `"%s`" `"%s`" `"%s`"" string1 string2 string3
+   #ENDIF
+
+   WaitListStat = 0
+
+   WHEN TARGET 0 string1 CALL WaitListS1
+   WHEN TARGET 1 string2 CALL WaitListS2
+   WHEN TARGET 2 string3 CALL WaitListS3
+
+   FOR loopControl = 1 UPTO maxTime
+      PAUSE 1
+      IF WaitListStat
+         RETURN
+      ENDIF
+   ENDFOR
+
+   ;; Failure, never received any.  Clear them all and exit.
+   WHEN TARGET 0 CLEAR
+   WHEN TARGET 1 CLEAR
+   WHEN TARGET 2 CLEAR
+
+ENDPROC
+
+PROC WaitListS1
+   WHEN TARGET 0 CLEAR
+   WHEN TARGET 1 CLEAR
+   WHEN TARGET 2 CLEAR
+   WaitListStat = 1
+ENDPROC
+
+PROC WaitListS2
+   WHEN TARGET 0 CLEAR
+   WHEN TARGET 1 CLEAR
+   WHEN TARGET 2 CLEAR
+   WaitListStat = 2
+ENDPROC
+
+PROC WaitListS3
+   WHEN TARGET 0 CLEAR
+   WHEN TARGET 1 CLEAR
+   WHEN TARGET 2 CLEAR
+   WaitListStat = 3
+ENDPROC
+;***************************************************************************
+;PROC SampleUsage
+;   ;; Wait for one of two prompts.  No third prompt, so passing in $NULLSTR
+;   WaitList(30, "enter to continue...", "press X to exit:", $NULLSTR)
+;   if WaitListStat == 1
+;      ;; got the "enter to continue..." prompt
+;   elseif WaitListStat == 2
+;      ;; got the "press X to exit:" prompt
+;   elseif WaitListStat == 3
+;      ;; this one can't happen.  We passed in $NULLSTR
+;   elseif WaitListStat == 0
+;      ;; didn't find any of the prompts, timed out after 30 seconds
+;   endif
+;ENDPROC
+
+PROC record 
+	integer iDay, iMonth, iYear, iHour, iMin, iSec	
+	string log
+	
+	fputs 0 ""
+	
+	ltimeints $LTIME iYear iMonth iDay iHour iMin iSec	
+	strfmt log "New Record on %d%02d%02d-%02d:%02d:%02d" iYear iMonth iDay iHour iMin iSec
+	fputs 0 log
+	
+	strfmt log "Total count           : %4d" RestoreLoopCount
+	fputs 0 log
+	strfmt log "Success count         : %4d" SuccessCount
+	fputs 0 log
+	strfmt log "Restore Fail count    : %4d" RestoreFailCount
+	fputs 0 log
+	strfmt log "Connection Fail count : %4d" ConnectionFailCount
+	fputs 0 log
+	
+	fflush 0
+ENDPROC
+
+PROC DUT_reboot
+	transmit "exit^M"
+	pause 2
+	transmit "exit^M"
+	pause 2
+	transmit "^M^M^M^M"
+	transmit "reboot^M"
+	pause 2
+	waitfor "==========webdir = /usr/cgr//www===========" 180 
+	pause 10	
+ENDPROC
+
+proc main
+	integer iDay, iMonth, iYear, iHour, iMin, iSec
+	string sFileName
+
+	string log
+   
+	ltimeints $LTIME iYear iMonth iDay iHour iMin iSec
+	strfmt sFileName "restore-%d%02d%02d-%02d%02d%02d" iYear iMonth iDay iHour iMin iSec
+	strcat sFileName ".log"
+   
+
+	;command was successful, do necessary steps.   
+	fopen 0 sFileName APPEND TEXT
+	if failure
+		usermsg "fail to open file"
+		return
+	endif
+	
+	strfmt log "start from %d%02d%02d-%02d%02d%02d"  iYear iMonth iDay iHour iMin iSec
+	fputs 0 log
+	fputs 0 "----------------------------------------------------------------------"
+	fflush 0	
+
+	while 1
+		RestoreLoopCount = RestoreLoopCount + 1	
+		statmsg "init : enter CLI "
+	
+		transmit "^M^M^M"
+		transmit "cli^M"
+
+		statmsg "restore : enter restore "	
+	
+		waitfor "D3G2408W-RES>"
+		transmit "restore^M"
+		waitfor "to factory default settings. All current settings will be lost. Continue? (y/n) "
+		transmit "y^M"
+
+		statmsg "restore : check does restore successful?"
+		WaitList(30, "Restarting system.", "doesnt use this string", $NULLSTR)
+		if WaitListStat != 1
+			call record
+			RestoreFailCount = RestoreFailCount + 1
+			statmsg "restore fail: waiting for finish to reboot"
+			call DUT_reboot
+			loopwhile
+		endif
+
+		statmsg "restore : waiting for finish to reboot"
+		waitfor "==========webdir = /usr/cgr//www===========" 150 
+		statmsg "boot finish"
+		pause 10
+
+	
+		transmit "^M^M^M"
+		transmit "cli^M"
+		transmit "^M^M^M"
+		transmit "wireless^M"
+		transmit "^M"
+		WaitList(3, "wireless>", "doesnt use this string", $NULLSTR)
+		if WaitListStat == 1
+			SuccessCount = SuccessCount + 1
+			call record
+			transmit "exit^M"
+		else
+			ConnectionFailCount = ConnectionFailCount +1
+			statmsg "connectino fail : waiting for finish to reboot"
+			call record
+			call DUT_reboot
+		endif
+
+	endwhile	
+
+	fclose 0
+	statmsg "End"
+endproc
+
