@@ -1,9 +1,18 @@
 ;***************************************************************************
-;  ver 1.02
+;  ver 1.03
 ;
 ;  by Gray
 ;***************************************************************************
+;1: D3G2408W
+;2: D3G1604W
+#define PROJECT 1
+#if PROJECT==1
 #define prompt "D3G2408W-RES>"
+#define file_pre "D3G2408W"
+#else
+#define prompt "D3G1604W-RES>"
+#define file_pre "D3G1604W"
+#endif
 ;***************************************************************************
 INTEGER  WaitListStat = 0
 INTEGER  RestoreLoopCount = 0
@@ -138,23 +147,32 @@ proc main
 	string sFileName
 	string sRestoreTime
 	string log
+	string capture_path, capture_file
 
 	; We need to set up a "hook" to allow the capture file to be closed when a user
 	; stops the script.
 	when USEREXIT call user_exit_procedure
    
 	ltimeints $LTIME iYear iMonth iDay iHour iMin iSec
-	strfmt sFileName "restore-%d%02d%02d-%02d%02d%02d" iYear iMonth iDay iHour iMin iSec
+	strfmt sFileName "%s-restore-%d%02d%02d-%02d%02d%02d" file_pre iYear iMonth iDay iHour iMin iSec
+
+	strfmt capture_path "C:\Program Files\Symantec\Procomm Plus\Aspect\%s" sFileName
+   	mkdir capture_path
+   	;mkdir sFileName
+   	;strfmt capture_path "C:\Program Files\Symantec\Procomm Plus\Aspect\"
+	set capture path capture_path
+	set capture recordmode screen
+
 	strcat sFileName ".log"
    
-
+   
 	;command was successful, do necessary steps.   
 	fopen 0 sFileName APPEND TEXT
 	if failure
 		usermsg "fail to open file"
 		return
 	endif
-	
+
 	strfmt log "start from %d%02d%02d-%02d%02d%02d"  iYear iMonth iDay iHour iMin iSec
 	fputs 0 log
 	fputs 0 "----------------------------------------------------------------------"
@@ -166,14 +184,20 @@ proc main
 	waitfor "#" 10		
 	transmit "cli^M"
 	waitfor prompt 20
-
+	
 
 	while 1
+		capture off
+		
 		RestoreLoopCount = RestoreLoopCount + 1	
 		statmsg "init : enter CLI "
 	
 		ltimeints $LTIME iYear iMonth iDay iHour iMin iSec
 		strfmt sRestoreTime "%d%02d%02d-%02d%02d%02d" iYear iMonth iDay iHour iMin iSec
+
+		strfmt capture_file "%s.log" sRestoreTime
+		set capture file capture_file
+		capture on
 	
 		statmsg "restore : enter restore on %s" sRestoreTime
 	
